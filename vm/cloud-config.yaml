@@ -1,0 +1,25 @@
+#cloud-config
+
+packages:
+  - git
+  - docker.io
+  - docker-compose-v2
+  - curl
+  - gnupg
+  - ca-certificates
+  - apt-transport-https
+
+runcmd:
+  # Enable and start Docker
+  - systemctl enable docker
+  - systemctl start docker
+
+  # Add GitLab Runner repo and install
+  - curl -L https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh | bash
+  - apt-get install -y gitlab-runner
+
+  # Optional: add user to docker group (not root required)
+  - usermod -aG docker ubuntu
+
+output:
+  {all: '| tee -a /var/log/cloud-init-output.log'}
