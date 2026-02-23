@@ -21,8 +21,11 @@ else
     exit 1
 fi
 
+# Support both legacy registration tokens and new runner authentication tokens.
+RUNNER_TOKEN="${RUNNER_AUTH_TOKEN:-$REGISTRATION_TOKEN}"
+
 # Validate required env vars
-if [[ -z "$REGISTRATION_TOKEN" || -z "$CI_SERVER_URL" ]]; then
+if [[ -z "$RUNNER_TOKEN" || -z "$CI_SERVER_URL" ]]; then
     echo "❌ REGISTRATION_TOKEN or CI_SERVER_URL is not set in $ENV_FILE"
     exit 1
 fi
@@ -56,16 +59,32 @@ echo "Registering GitLab Runner..."
 
 sudo gitlab-runner unregister --name "$VM_NAME" &>/dev/null
 
-sudo gitlab-runner register --non-interactive \
-  --url "$CI_SERVER_URL" \
-  --registration-token "$REGISTRATION_TOKEN" \
-  --executor "docker" \
-  --docker-image alpine:latest \
-  --description "$VM_NAME" \
-  --tag-list "${RUNNER_TAGS:-multipass,ci}" \
-  --run-untagged="true" \
-  --locked="false" \
+REGISTER_TOKEN_FLAG="--registration-token"
+if [[ "$RUNNER_TOKEN" == glrt-* ]]; then
+  REGISTER_TOKEN_FLAG="--token"
+  echo "Detected runner authentication token (new GitLab workflow)."
+  echo "Skipping server-managed registration flags (tags/locked/run-untagged)."
+fi
+
+register_cmd=(
+  sudo gitlab-runner register --non-interactive
+  --url "$CI_SERVER_URL"
+  "$REGISTER_TOKEN_FLAG" "$RUNNER_TOKEN"
+  --executor "docker"
+  --docker-image alpine:latest
+  --description "$VM_NAME"
   --docker-privileged="true"
+)
+
+if [[ "$REGISTER_TOKEN_FLAG" == "--registration-token" ]]; then
+  register_cmd+=(
+    --tag-list "${RUNNER_TAGS:-multipass,ci}"
+    --run-untagged="true"
+    --locked="false"
+  )
+fi
+
+"${register_cmd[@]}"
 
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
