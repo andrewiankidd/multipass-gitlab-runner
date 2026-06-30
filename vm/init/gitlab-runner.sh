@@ -92,6 +92,35 @@ if [ $EXIT_CODE -ne 0 ]; then
     exit 1
 fi
 
+# Set global concurrency (jobs run in parallel across all runners).
+# Use RUNNER_CONCURRENT if set, otherwise autoscale from the VM's CPU/RAM.
+CONFIG_TOML="/etc/gitlab-runner/config.toml"
+JOB_MEM_MB="${RUNNER_JOB_MEM_MB:-1536}"
+
+if [[ -n "$RUNNER_CONCURRENT" ]]; then
+    CONCURRENT="$RUNNER_CONCURRENT"
+    echo "Using explicit RUNNER_CONCURRENT=$CONCURRENT"
+else
+    CPUS=$(nproc)
+    # Total RAM in MB; reserve ~20% for the OS/docker/runner itself.
+    TOTAL_MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+    USABLE_MEM_MB=$(( TOTAL_MEM_MB * 80 / 100 ))
+    MEM_LIMIT=$(( USABLE_MEM_MB / JOB_MEM_MB ))
+
+    # Clamp to the smaller of the CPU and memory limits, floor of 1.
+    CONCURRENT=$CPUS
+    [[ "$MEM_LIMIT" -lt "$CONCURRENT" ]] && CONCURRENT=$MEM_LIMIT
+    [[ "$CONCURRENT" -lt 1 ]] && CONCURRENT=1
+
+    echo "Autoscaled concurrency: $CONCURRENT (cpus=$CPUS, usable_mem=${USABLE_MEM_MB}MB, job_mem=${JOB_MEM_MB}MB)"
+fi
+
+# Strip any existing global `concurrent` line(s), then prepend a single fresh
+# one so it lands in the global section (not inside a [[runners]] block) and we
+# never end up with duplicate keys. config.toml is root-only (0600), hence sudo.
+sudo sed -i "/^concurrent[[:space:]]*=.*/d" "$CONFIG_TOML"
+sudo sed -i "1i concurrent = $CONCURRENT" "$CONFIG_TOML"
+
 # Start the runner service
 echo "Starting GitLab Runner service..."
 sudo systemctl enable gitlab-runner
