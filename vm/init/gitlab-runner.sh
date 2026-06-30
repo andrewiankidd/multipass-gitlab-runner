@@ -73,7 +73,11 @@ register_cmd=(
   --executor "docker"
   --docker-image alpine:latest
   --description "$VM_NAME"
+  # Docker-in-Docker: privileged lets the docker:dind service container run,
+  # and the /certs/client volume is shared between dind and the job so the
+  # TLS handshake (default in dind 19.03+) succeeds.
   --docker-privileged="true"
+  --docker-volumes "/certs/client"
 )
 
 if [[ "$REGISTER_TOKEN_FLAG" == "--registration-token" ]]; then
